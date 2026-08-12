@@ -173,14 +173,22 @@ def main():
         print(f"  Ya se opero en esta vela 15m (cierre {bar0}Z) -> candado."); return
     if dry:
         print("  [DRY-RUN] No coloco la orden."); return
-    body = {"epic": EPIC, "direction": sig["side"], "size": SIZE,
-            "stopLevel": sig["sl"], "profitLevel": sig["tp"]}
+    # Recalcular SL/TP desde el precio ACTUAL (no el cierre viejo): evita que el nivel
+    # quede del lado equivocado si el mercado se movio entre el cierre y la orden.
+    snap = cc.get(h, f"/api/v1/markets/{EPIC}").json().get("snapshot", {})
+    a = sig["atr"]
+    if sig["side"] == "BUY":
+        entry = snap.get("offer"); sl = round(entry - SL_MULT * a, 1); tp = round(entry + TP_MULT * a, 1)
+    else:
+        entry = snap.get("bid"); sl = round(entry + SL_MULT * a, 1); tp = round(entry - TP_MULT * a, 1)
+    body = {"epic": EPIC, "direction": sig["side"], "size": SIZE, "stopLevel": sl, "profitLevel": tp}
     r = cc.post(h, "/api/v1/positions", body)
     if r.status_code not in (200, 201):
-        sys.exit(f"Orden rechazada ({r.status_code}): {r.text}")
+        print(f"  Orden NO colocada ({r.status_code}): {r.text} -> se reintenta en la proxima vela.")
+        return
     ref = r.json().get("dealReference")
     conf = cc.get(h, f"/api/v1/confirms/{ref}").json()
-    print(f"  ORDEN COLOCADA: {sig['side']} {SIZE} {EPIC}  ref={ref}  status={conf.get('dealStatus')}")
+    print(f"  ORDEN COLOCADA: {sig['side']} {SIZE} {EPIC} @ {entry} SL={sl} TP={tp} ref={ref} status={conf.get('dealStatus')}")
 
 
 if __name__ == "__main__":
