@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 import capital_client as cc
 
 EPIC      = "GOLD"
-SIZE      = 0.5            # tamano de la orden (ajustable)
+SIZE      = 2.0            # tamano de la orden (ajustable) — ~$37 TP / ~$25 SL, riesgo 2.5% cuenta
 BB_LEN    = 20
 BB_MULT   = 2.0
 RSI_LEN   = 14
