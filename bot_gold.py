@@ -121,9 +121,17 @@ def evaluate(h):
             "side": side, "sl": sl, "tp": tp}
 
 
+def _mysize(v):
+    """True si el tamano corresponde a ESTE bot (para no chocar con el bot FVG)."""
+    try:
+        return abs(float(v) - SIZE) < 1e-9
+    except (TypeError, ValueError):
+        return False
+
+
 def has_open_position(h):
     pos = cc.get(h, "/api/v1/positions").json().get("positions", [])
-    return any(p["market"]["epic"] == EPIC for p in pos)
+    return any(p["market"]["epic"] == EPIC and _mysize(p["position"]["size"]) for p in pos)
 
 
 def acted_this_bar(h, bar0):
@@ -133,6 +141,8 @@ def acted_this_bar(h, bar0):
         return False
     for a in r.json().get("activities", []):
         if a.get("epic") != EPIC or a.get("type") not in ("POSITION", "WORKING_ORDER"):
+            continue
+        if not _mysize(a.get("details", {}).get("size")):   # solo mis ordenes (tamano 0.5)
             continue
         try:
             d = datetime.strptime(a["dateUTC"], "%Y-%m-%dT%H:%M:%S.%f")
