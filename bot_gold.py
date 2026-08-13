@@ -22,10 +22,10 @@ import capital_client as cc
 EPIC      = "GOLD"
 SIZE      = 2.0            # tamano de la orden (ajustable) — ~$37 TP / ~$25 SL, riesgo 2.5% cuenta
 BB_LEN    = 20
-BB_MULT   = 2.0
+BB_MULT   = 1.75          # banda mas angosta -> entra antes (aflojado, robusto en backtest)
 RSI_LEN   = 14
-RSI_LOW   = 35
-RSI_HIGH  = 65
+RSI_LOW   = 38            # RSI menos extremo -> mas entradas (~3.1/dia vs 2.2)
+RSI_HIGH  = 62
 ATR_LEN   = 14
 SL_MULT   = 1.0           # Stop Loss = 1.0 x ATR
 TP_MULT   = 1.5           # Take Profit = 1.5 x ATR
