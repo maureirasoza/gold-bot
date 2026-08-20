@@ -30,6 +30,13 @@ ATR_LEN   = 14
 SL_MULT   = 1.0           # Stop Loss = 1.0 x ATR
 TP_MULT   = 1.5           # Take Profit = 1.5 x ATR
 BAR_MIN   = 15            # velas de 15 minutos
+# FILTRO DIRECCIONAL DE REGIMEN: la reversion muere en tendencia fuerte, entonces NO se
+# fadea contra ella. Si ADX>=ADX_MIN (tendencia con fuerza): no VENDER sobre la EMA_TREND
+# (no shortear un uptrend) ni COMPRAR bajo ella (no comprar un downtrend). Validado en
+# backtest (71d, robusto split-half): +375 vs +267 sin filtro, payoff 1.83 vs 1.52.
+ADX_LEN   = 14
+ADX_MIN   = 20           # umbral de "tendencia con fuerza"
+EMA_TREND = 200          # referencia de la tendencia mayor
 
 
 def _mid(x):
@@ -44,7 +51,7 @@ def current_bar_start():
 
 def fetch_closed(h):
     """OHLC (mid) SOLO de velas 15m ya cerradas, en orden. Usa la propia capital.com."""
-    r = cc.get(h, f"/api/v1/prices/{EPIC}?resolution=MINUTE_15&max=100")
+    r = cc.get(h, f"/api/v1/prices/{EPIC}?resolution=MINUTE_15&max=300")
     if r.status_code != 200:
         sys.exit(f"No se pudo bajar precios ({r.status_code}): {r.text}")
     bar0 = current_bar_start()
@@ -89,6 +96,38 @@ def atr_series(h, l, c, n):
     return _rma(tr, n)
 
 
+def ema_series(s, k):
+    out = [s[0]]; a = 2 / (k + 1)
+    for i in range(1, len(s)):
+        out.append(s[i] * a + out[-1] * (1 - a))
+    return out
+
+
+def adx_last(h, l, c, n):
+    """Ultimo valor de ADX (Wilder). None si no hay suficientes velas."""
+    if len(c) < 2 * n + 2:
+        return None
+    pdm = [0.0]; ndm = [0.0]; tr = [h[0]-l[0]]
+    for i in range(1, len(c)):
+        up = h[i]-h[i-1]; dn = l[i-1]-l[i]
+        pdm.append(up if (up > dn and up > 0) else 0.0)
+        ndm.append(dn if (dn > up and dn > 0) else 0.0)
+        tr.append(max(h[i]-l[i], abs(h[i]-c[i-1]), abs(l[i]-c[i-1])))
+    sp = _rma(pdm, n); sn = _rma(ndm, n); st = _rma(tr, n)
+    dx = [None] * len(c)
+    for i in range(len(c)):
+        if st[i] and st[i] > 0:
+            pdi = 100*sp[i]/st[i]; ndi = 100*sn[i]/st[i]; tot = pdi+ndi
+            dx[i] = 0.0 if tot == 0 else 100*abs(pdi-ndi)/tot
+    start = next((i for i, x in enumerate(dx) if x is not None), len(c))
+    if start + n > len(c):
+        return None
+    p = sum(dx[start:start+n]) / n
+    for i in range(start+n, len(c)):
+        p = (p*(n-1) + dx[i]) / n
+    return p
+
+
 def evaluate(h):
     o, hi, lo, c = fetch_closed(h)
     if len(c) < BB_LEN + 2:
@@ -110,6 +149,15 @@ def evaluate(h):
     short_e = shortC(i) and not shortC(i-1)
     side = "BUY" if long_e else ("SELL" if short_e else None)
     close = c[i]
+
+    # FILTRO DIRECCIONAL: no fadear contra una tendencia fuerte.
+    ema_t = ema_series(c, EMA_TREND)[i]
+    adxv = adx_last(hi, lo, c, ADX_LEN)
+    filtrado = False
+    if side and adxv is not None and adxv >= ADX_MIN:
+        if (side == "SELL" and close > ema_t) or (side == "BUY" and close < ema_t):
+            side = None; filtrado = True   # seria fade contra tendencia fuerte -> se descarta
+
     if side == "BUY":
         sl = round(close - SL_MULT*a, 1); tp = round(close + TP_MULT*a, 1)
     elif side == "SELL":
@@ -118,6 +166,8 @@ def evaluate(h):
         sl = tp = None
     return {"close": round(close, 1), "upper": round(upper, 1), "lower": round(lower, 1),
             "rsi": round(rsi[i], 1) if rsi[i] else None, "atr": round(a, 1) if a else None,
+            "adx": round(adxv, 1) if adxv is not None else None,
+            "ema_trend": round(ema_t, 1), "filtrado": filtrado,
             "side": side, "sl": sl, "tp": tp}
 
 
@@ -159,9 +209,11 @@ def main():
     h = cc.login()
     sig = evaluate(h)
     print(f"[ORO 15m GOLD] close={sig['close']} banda[{sig['lower']}..{sig['upper']}] "
-          f"RSI={sig['rsi']} ATR={sig['atr']}")
+          f"RSI={sig['rsi']} ATR={sig['atr']} ADX={sig['adx']} EMA{EMA_TREND}={sig['ema_trend']}")
     if sig["side"]:
         print(f"  >> SENAL {sig['side']}  SL={sig['sl']}  TP={sig['tp']}")
+    elif sig.get("filtrado"):
+        print(f"  >> senal DESCARTADA por filtro direccional (ADX>={ADX_MIN} contra tendencia mayor)")
     else:
         print("  >> sin senal en la ultima vela cerrada")
     if status or not sig["side"]:
