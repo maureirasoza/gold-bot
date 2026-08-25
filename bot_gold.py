@@ -21,7 +21,8 @@ import capital_client as cc
 
 EPIC      = "GOLD"
 SIZE      = 2.0            # tamano de la orden (ajustable) — ~$37 TP / ~$25 SL, riesgo 2.5% cuenta
-BB_LEN    = 20
+BB_LEN    = 26            # banda mas larga/estable: filtra falsos extremos (20-ago->26)
+                          # Backtest 71d robusto: +405 vs +311 (BB20), 44% acierto, mitades +252/+153.
 BB_MULT   = 1.75          # banda mas angosta -> entra antes (aflojado, robusto en backtest)
 RSI_LEN   = 14
 RSI_LOW   = 38            # RSI menos extremo -> mas entradas (~3.1/dia vs 2.2)
