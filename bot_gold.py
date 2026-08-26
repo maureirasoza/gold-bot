@@ -28,7 +28,8 @@ RSI_LEN   = 14
 RSI_LOW   = 38            # RSI menos extremo -> mas entradas (~3.1/dia vs 2.2)
 RSI_HIGH  = 62
 ATR_LEN   = 14
-SL_MULT   = 1.0           # Stop Loss = 1.0 x ATR
+SL_MULT   = 1.15          # Stop Loss = 1.15 x ATR (25-ago: stop un poco mas ancho; salva
+                          # algunas mechas. Efecto neto marginal en backtest, pero robusto.)
 TP_MULT   = 1.5           # Take Profit = 1.5 x ATR
 BAR_MIN   = 15            # velas de 15 minutos
 # FILTRO DIRECCIONAL DE REGIMEN: la reversion muere en tendencia fuerte, entonces NO se
