@@ -30,7 +30,8 @@ RSI_HIGH  = 62
 ATR_LEN   = 14
 SL_MULT   = 1.15          # Stop Loss = 1.15 x ATR (25-ago: stop un poco mas ancho; salva
                           # algunas mechas. Efecto neto marginal en backtest, pero robusto.)
-TP_MULT   = 1.5           # Take Profit = 1.5 x ATR
+TP_MULT   = 1.55          # Take Profit = 1.55 x ATR (25-ago, a pedido; backtest +512 pero
+                          # mitades desbalanceadas +363/+150 = probable espejismo de regimen)
 BAR_MIN   = 15            # velas de 15 minutos
 # FILTRO DIRECCIONAL DE REGIMEN: la reversion muere en tendencia fuerte, entonces NO se
 # fadea contra ella. Si ADX>=ADX_MIN (tendencia con fuerza): no VENDER sobre la EMA_TREND
