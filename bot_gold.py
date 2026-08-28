@@ -216,7 +216,7 @@ def main():
     print(f"[ORO 15m GOLD] close={sig['close']} banda[{sig['lower']}..{sig['upper']}] "
           f"RSI={sig['rsi']} ATR={sig['atr']} ADX={sig['adx']} EMA{EMA_TREND}={sig['ema_trend']}")
     if sig["side"]:
-        print(f"  >> SENAL {sig['side']}  SL={sig['sl']}  TP={sig['tp']}")
+        print(f"  >> SENAL {sig['side']}  (salida: TRAILING 18pts sin TP)")
     elif sig.get("filtrado"):
         print(f"  >> senal DESCARTADA por filtro direccional (ADX>={ADX_MIN} contra tendencia mayor)")
     else:
@@ -230,22 +230,33 @@ def main():
         print(f"  Ya se opero en esta vela 15m (cierre {bar0}Z) -> candado."); return
     if dry:
         print("  [DRY-RUN] No coloco la orden."); return
-    # Recalcular SL/TP desde el precio ACTUAL (no el cierre viejo): evita que el nivel
-    # quede del lado equivocado si el mercado se movio entre el cierre y la orden.
+    # SALIDA por TRAILING NATIVO de 18 puntos, SIN TP (28-ago, a pedido del usuario; backtest
+    # 15m/60d +871 ROB3 vs +712 del TP fijo -> deja correr el rebote en vez de cortarlo en 1.5xATR).
+    # capital.com traila en tiempo real. Nota: 18 es FIJO (no adapta al ATR) -> vigilar si en
+    # regimenes de otra volatilidad rinde distinto. Revertir = volver a stopLevel+profitLevel.
+    TRAIL_PTS = 18
     snap = cc.get(h, f"/api/v1/markets/{EPIC}").json().get("snapshot", {})
-    a = sig["atr"]
-    if sig["side"] == "BUY":
-        entry = snap.get("offer"); sl = round(entry - SL_MULT * a, 1); tp = round(entry + TP_MULT * a, 1)
-    else:
-        entry = snap.get("bid"); sl = round(entry + SL_MULT * a, 1); tp = round(entry - TP_MULT * a, 1)
-    body = {"epic": EPIC, "direction": sig["side"], "size": SIZE, "stopLevel": sl, "profitLevel": tp}
+    entry = snap.get("offer") if sig["side"] == "BUY" else snap.get("bid")
+    body = {"epic": EPIC, "direction": sig["side"], "size": SIZE,
+            "trailingStop": True, "stopDistance": TRAIL_PTS}
     r = cc.post(h, "/api/v1/positions", body)
     if r.status_code not in (200, 201):
-        print(f"  Orden NO colocada ({r.status_code}): {r.text} -> se reintenta en la proxima vela.")
-        return
+        # FALLBACK: si el trailing nativo falla, entrar con stop fijo (SL_MULT x ATR) + TP fijo.
+        print(f"  Trailing POST fallo ({r.status_code}): {r.text} -> reintento con stop fijo")
+        a = sig["atr"]
+        if sig["side"] == "BUY":
+            sl = round(entry - SL_MULT * a, 1); tp = round(entry + TP_MULT * a, 1)
+        else:
+            sl = round(entry + SL_MULT * a, 1); tp = round(entry - TP_MULT * a, 1)
+        r = cc.post(h, "/api/v1/positions",
+                    {"epic": EPIC, "direction": sig["side"], "size": SIZE, "stopLevel": sl, "profitLevel": tp})
+        if r.status_code not in (200, 201):
+            print(f"  Orden NO colocada ({r.status_code}): {r.text} -> se reintenta en la proxima vela.")
+            return
     ref = r.json().get("dealReference")
     conf = cc.get(h, f"/api/v1/confirms/{ref}").json()
-    print(f"  ORDEN COLOCADA: {sig['side']} {SIZE} {EPIC} @ {entry} SL={sl} TP={tp} ref={ref} status={conf.get('dealStatus')}")
+    print(f"  ORDEN COLOCADA: {sig['side']} {SIZE} {EPIC} @ {entry} TRAILING {TRAIL_PTS}pts sin TP "
+          f"ref={ref} status={conf.get('dealStatus')}")
 
 
 if __name__ == "__main__":
