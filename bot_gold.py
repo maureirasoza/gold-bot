@@ -216,7 +216,7 @@ def main():
     print(f"[ORO 15m GOLD] close={sig['close']} banda[{sig['lower']}..{sig['upper']}] "
           f"RSI={sig['rsi']} ATR={sig['atr']} ADX={sig['adx']} EMA{EMA_TREND}={sig['ema_trend']}")
     if sig["side"]:
-        print(f"  >> SENAL {sig['side']}  (salida: TRAILING 18pts sin TP)")
+        print(f"  >> SENAL {sig['side']}  (salida: TRAILING 1.5xATR sin TP)")
     elif sig.get("filtrado"):
         print(f"  >> senal DESCARTADA por filtro direccional (ADX>={ADX_MIN} contra tendencia mayor)")
     else:
@@ -230,15 +230,16 @@ def main():
         print(f"  Ya se opero en esta vela 15m (cierre {bar0}Z) -> candado."); return
     if dry:
         print("  [DRY-RUN] No coloco la orden."); return
-    # SALIDA por TRAILING NATIVO de 18 puntos, SIN TP (28-ago, a pedido del usuario; backtest
-    # 15m/60d +871 ROB3 vs +712 del TP fijo -> deja correr el rebote en vez de cortarlo en 1.5xATR).
-    # capital.com traila en tiempo real. Nota: 18 es FIJO (no adapta al ATR) -> vigilar si en
-    # regimenes de otra volatilidad rinde distinto. Revertir = volver a stopLevel+profitLevel.
-    TRAIL_PTS = 18
+    # SALIDA por TRAILING NATIVO ADAPTATIVO = 1.5 x ATR, SIN TP (31-ago: dinamico segun ATR en vez
+    # de 18 fijo). Backtest 15m/60d +814 ROB3 (optimo limpio; <1.5 tanquea, >1.5 baja a rob2).
+    # Se ADAPTA: apretado en calma, ancho en volatilidad. capital.com traila en tiempo real.
+    # Revertir = volver a stopLevel+profitLevel.
+    TRAIL_ATR = 1.5
+    trail_pts = round(TRAIL_ATR * sig["atr"], 1)
     snap = cc.get(h, f"/api/v1/markets/{EPIC}").json().get("snapshot", {})
     entry = snap.get("offer") if sig["side"] == "BUY" else snap.get("bid")
     body = {"epic": EPIC, "direction": sig["side"], "size": SIZE,
-            "trailingStop": True, "stopDistance": TRAIL_PTS}
+            "trailingStop": True, "stopDistance": trail_pts}
     r = cc.post(h, "/api/v1/positions", body)
     if r.status_code not in (200, 201):
         # FALLBACK: si el trailing nativo falla, entrar con stop fijo (SL_MULT x ATR) + TP fijo.
@@ -255,7 +256,7 @@ def main():
             return
     ref = r.json().get("dealReference")
     conf = cc.get(h, f"/api/v1/confirms/{ref}").json()
-    print(f"  ORDEN COLOCADA: {sig['side']} {SIZE} {EPIC} @ {entry} TRAILING {TRAIL_PTS}pts sin TP "
+    print(f"  ORDEN COLOCADA: {sig['side']} {SIZE} {EPIC} @ {entry} TRAILING {trail_pts}pts (1.5xATR) sin TP "
           f"ref={ref} status={conf.get('dealStatus')}")
 
 
