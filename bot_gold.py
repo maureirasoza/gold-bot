@@ -216,7 +216,7 @@ def main():
     print(f"[ORO 15m GOLD] close={sig['close']} banda[{sig['lower']}..{sig['upper']}] "
           f"RSI={sig['rsi']} ATR={sig['atr']} ADX={sig['adx']} EMA{EMA_TREND}={sig['ema_trend']}")
     if sig["side"]:
-        print(f"  >> SENAL {sig['side']}  (salida: TRAILING 1.0xATR sin TP)")
+        print(f"  >> SENAL {sig['side']}  (salida: TRAILING 1.5xATR sin TP)")
     elif sig.get("filtrado"):
         print(f"  >> senal DESCARTADA por filtro direccional (ADX>={ADX_MIN} contra tendencia mayor)")
     else:
@@ -230,11 +230,10 @@ def main():
         print(f"  Ya se opero en esta vela 15m (cierre {bar0}Z) -> candado."); return
     if dry:
         print("  [DRY-RUN] No coloco la orden."); return
-    # SALIDA por TRAILING NATIVO ADAPTATIVO = 1.0 x ATR, SIN TP (31-ago, A PEDIDO del usuario:
-    # bajado de 1.5 a 1.0 para lockear ganancia mas apretado). OJO override informado: el backtest
-    # da 1.0xATR MUCHO peor (+112 rob2 vs +814 ROB3 de 1.5) -> mas apretado whipsapea en los
-    # rebotes de reversion. Se ADAPTA al ATR (aprieta en calma, ancho en volatil). Revertir = 1.5.
-    TRAIL_ATR = 1.0
+    # SALIDA por TRAILING NATIVO ADAPTATIVO = 1.5 x ATR, SIN TP. OPTIMO validado (backtest 15m/60d
+    # +814 ROB3; <1.5 tanquea/whipsapea en rebotes de reversion, +112 a 1.0). El 01-sep se probo
+    # 1.0 a pedido y se volvio a 1.5 tras reconfirmar el backtest. Se ADAPTA al ATR. Revertir=stopLevel+TP.
+    TRAIL_ATR = 1.5
     trail_pts = round(TRAIL_ATR * sig["atr"], 1)
     snap = cc.get(h, f"/api/v1/markets/{EPIC}").json().get("snapshot", {})
     entry = snap.get("offer") if sig["side"] == "BUY" else snap.get("bid")
