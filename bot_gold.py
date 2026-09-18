@@ -133,10 +133,9 @@ def adx_last(h, l, c, n):
     return p
 
 
-def evaluate(h):
-    o, hi, lo, c = fetch_closed(h)
-    if len(c) < BB_LEN + 2:
-        sys.exit("Pocas velas para calcular.")
+def signal_last(o, hi, lo, c):
+    """Senal Bollinger en la ULTIMA vela de los arrays dados. PURA (sin red): misma logica
+    que el bot en vivo. El backtester importa ESTA funcion -> test identico al bot real."""
     i = len(c) - 1
     basis = sma(c, BB_LEN, i); dev = BB_MULT * stdev_pop(c, BB_LEN, i)
     upper, lower = basis + dev, basis - dev
@@ -174,6 +173,13 @@ def evaluate(h):
             "adx": round(adxv, 1) if adxv is not None else None,
             "ema_trend": round(ema_t, 1), "filtrado": filtrado,
             "side": side, "sl": sl, "tp": tp}
+
+
+def evaluate(h):
+    o, hi, lo, c = fetch_closed(h)
+    if len(c) < BB_LEN + 2:
+        sys.exit("Pocas velas para calcular.")
+    return signal_last(o, hi, lo, c)
 
 
 def _mysize(v):
@@ -230,10 +236,12 @@ def main():
         print(f"  Ya se opero en esta vela 15m (cierre {bar0}Z) -> candado."); return
     if dry:
         print("  [DRY-RUN] No coloco la orden."); return
-    # SALIDA por TRAILING NATIVO ADAPTATIVO = 1.5 x ATR, SIN TP. OPTIMO validado (backtest 15m/60d
-    # +814 ROB3; <1.5 tanquea/whipsapea en rebotes de reversion, +112 a 1.0). El 01-sep se probo
-    # 1.0 a pedido y se volvio a 1.5 tras reconfirmar el backtest. Se ADAPTA al ATR. Revertir=stopLevel+TP.
-    TRAIL_ATR = 1.5
+    # SALIDA por TRAILING NATIVO ADAPTATIVO = 2.0 x ATR, SIN TP. Elegido 18-sep tras el BACKTEST
+    # REAL (backtest_real.py --bollinger --sweep, mismo signal_last del bot sobre GC=F 15m): el
+    # 1.5x que corria antes era MARGINAL (ROB2, ultimo tercio en perdida, +240 pts). El barrido
+    # mostro zona robusta 1.75x-3x (todo ROB3); 2.0x es el pico (+572 pts, PF 2.28, +58/+379/+135).
+    # OJO: solo 60d de datos 15m (limite Yahoo) -> menos confianza que el trend. Se ADAPTA al ATR.
+    TRAIL_ATR = 2.0
     trail_pts = round(TRAIL_ATR * sig["atr"], 1)
     snap = cc.get(h, f"/api/v1/markets/{EPIC}").json().get("snapshot", {})
     entry = snap.get("offer") if sig["side"] == "BUY" else snap.get("bid")
