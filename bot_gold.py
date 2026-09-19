@@ -2,7 +2,19 @@
 """
 Bot ORO intradia (15 min) — capital.com DEMO.
 
-Estrategia validada (barrido + robustez split-half sobre 72 dias de oro 15m):
+ESTADO 19-sep-2026: **PAUSADO** (cron-job.org job 8252402 "Gatillar bot ORO" deshabilitado).
+  RE-VALIDACION sobre el INSTRUMENTO REAL (capital-demo/backtest_real.py --bollinger --source
+  capital --sweep: GOLD 15m de la propia capital.com, 300 dias, 19395 velas, nov-2025 -> sep-2026,
+  mismo signal_last de este bot):
+    trailing 1.0x -22 | 1.25x -128 | 1.5x -184 (valor viejo) | 1.75x -569 | 2.0x -244 (valor
+    actual) | 2.5x -42  -> TODOS ROB1 (pierden). Solo 3.0x: +771, PF 1.27, ROB2 (tercio medio -280).
+  => Las validaciones previas (72d / 60d de Yahoo) eran ARTEFACTOS del regimen reciente, no un
+     edge: la estrategia entera (BB26/1.75 + RSI + ADX/EMA) no gana sobre 10 meses reales.
+     No es culpa del cambio 1.5->2.0x del 18-sep (ambos pierden). LECCION: 60d de 15m no alcanzan;
+     validar con --source capital antes de tocar o desplegar. Reactivar solo si un re-diseno
+     (p.ej. alrededor de 3x) pasa ROB3 en 300d reales. Nota: FVG si pasa (ROB3, PF 1.42).
+
+Estrategia validada ORIGINALMENTE (barrido + robustez split-half sobre 72 dias de oro 15m):
 reversion Bollinger + RSI, pero con salida rapida (corta perdidas, deja correr ganancias):
   - Entra LARGO si el cierre 15m rompe bajo la banda inferior (BB20/2) con RSI < 35.
   - Entra CORTO si rompe sobre la banda superior con RSI > 65.
