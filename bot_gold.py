@@ -2,7 +2,13 @@
 """
 Bot ORO intradia (15 min) — capital.com DEMO.
 
-ESTADO 19-sep-2026: **PAUSADO** (cron-job.org job 8252402 "Gatillar bot ORO" deshabilitado).
+ESTADO 19-sep-2026 (tarde): **REACTIVADO con MEJORA** — trailing 2.0x -> **5.0xATR** y size 2.0 -> **0.8**.
+  Busqueda de la mejor mejora sobre 300d REALES (capital-demo/bollinger_mejora.py: 198 variantes de
+  entrada/lado/salida con el signal_last real): la entrada actual se mantiene; lo que cambia es dar
+  AIRE al rebote. Con trailing 5.0x: +1987 pts, PF 1.70, acierto 39%, maxDD -297, tercios
+  +1045/+462/+479 -> ROB3, ~3.8 trades/sem (meseta 5-6x ROB3; 4.5x y 7x caen a ROB2). Cron 8252402
+  re-habilitado. Size 0.8 para que el maxDD sea ~23% de la cuenta (a 2.0 seria 57%).
+  Historia del hallazgo que llevo a la pausa (misma manana):
   RE-VALIDACION sobre el INSTRUMENTO REAL (capital-demo/backtest_real.py --bollinger --source
   capital --sweep: GOLD 15m de la propia capital.com, 300 dias, 19395 velas, nov-2025 -> sep-2026,
   mismo signal_last de este bot):
@@ -32,7 +38,10 @@ from datetime import datetime, timezone, timedelta
 import capital_client as cc
 
 EPIC      = "GOLD"
-SIZE      = 2.0            # tamano de la orden (ajustable) — ~$37 TP / ~$25 SL, riesgo 2.5% cuenta
+SIZE      = 0.8            # 19-sep: bajado de 2.0 al pasar el trailing a 5xATR (stop ~46 pts con ATR
+                           # mediano 9.2): a 2.0 el maxDD del backtest real (-297 pts) seria 57% de la
+                           # cuenta; a 0.8 es 23% y ~$37 de riesgo inicial/trade. 0.5 = opcion conservadora.
+                           # Unico en GOLD (trend 0.5, FVG 1.0) -> identifica al bot en candado y tracker.
 BB_LEN    = 26            # banda mas larga/estable: filtra falsos extremos (20-ago->26)
                           # Backtest 71d robusto: +405 vs +311 (BB20), 44% acierto, mitades +252/+153.
 BB_MULT   = 1.75          # banda mas angosta -> entra antes (aflojado, robusto en backtest)
@@ -46,6 +55,15 @@ TP_MULT   = 1.5           # Take Profit = 1.5 x ATR (26-ago: bajado de 1.55). Co
                           # realista (cierre al bid, ~$0.30-0.60 gold), 1.5 es mas ROBUSTO:
                           # empata al 1.55 con spread apretado y le gana claro con spread
                           # ancho (sesiones finas). Captura casi-TP que el bid deja cortos.
+TRAIL_ATR = 5.0           # SALIDA UNICA: trailing nativo = 5.0 x ATR, sin TP. Elegido 19-sep por el
+                          # BACKTEST REAL (capital-demo/bollinger_mejora.py + backtest_real.py
+                          # --bollinger --source capital: GOLD 15m de capital.com, 300d, 19395 velas,
+                          # mismo signal_last): con ESTA entrada, 2.0x -244 ROB1 | 3x +771 ROB2 |
+                          # 4x +1117 ROB2 | 4.5x +1605 ROB2 | 5.0x +1987 PF1.70 maxDD-297 ROB3
+                          # (+1045/+462/+479) | 5.5x +1969 ROB3 | 6x +2387 PF1.95 ROB3 | 7x ROB2.
+                          # Meseta robusta 5-6x; 5.0 = menor drawdown y tercios mas parejos. Mismo
+                          # patron que el trend (5x): la reversion tambien necesita AIRE para el rebote.
+                          # Alternativas (solo largo sin filtro, SL/TP fijo) son ROB3 pero PF 1.1-1.3.
 BAR_MIN   = 15            # velas de 15 minutos
 # FILTRO DIRECCIONAL DE REGIMEN: la reversion muere en tendencia fuerte, entonces NO se
 # fadea contra ella. Si ADX>=ADX_MIN (tendencia con fuerza): no VENDER sobre la EMA_TREND
@@ -248,12 +266,10 @@ def main():
         print(f"  Ya se opero en esta vela 15m (cierre {bar0}Z) -> candado."); return
     if dry:
         print("  [DRY-RUN] No coloco la orden."); return
-    # SALIDA por TRAILING NATIVO ADAPTATIVO = 2.0 x ATR, SIN TP. Elegido 18-sep tras el BACKTEST
-    # REAL (backtest_real.py --bollinger --sweep, mismo signal_last del bot sobre GC=F 15m): el
-    # 1.5x que corria antes era MARGINAL (ROB2, ultimo tercio en perdida, +240 pts). El barrido
-    # mostro zona robusta 1.75x-3x (todo ROB3); 2.0x es el pico (+572 pts, PF 2.28, +58/+379/+135).
-    # OJO: solo 60d de datos 15m (limite Yahoo) -> menos confianza que el trend. Se ADAPTA al ATR.
-    TRAIL_ATR = 2.0
+    # SALIDA por TRAILING NATIVO ADAPTATIVO = TRAIL_ATR x ATR (constante de modulo, ver arriba),
+    # SIN TP. Historial: 18pts fijo (28-ago) -> 1.5xATR -> 1.0 -> 1.5 -> 2.0 (18-sep, sobre 60d de
+    # Yahoo: ARTEFACTO) -> 5.0 (19-sep, sobre 300d REALES de capital.com). El backtester lee la
+    # misma constante (backtest_real.py --bollinger --source capital) -> no puede desincronizarse.
     trail_pts = round(TRAIL_ATR * sig["atr"], 1)
     snap = cc.get(h, f"/api/v1/markets/{EPIC}").json().get("snapshot", {})
     entry = snap.get("offer") if sig["side"] == "BUY" else snap.get("bid")
