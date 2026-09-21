@@ -225,6 +225,18 @@ def has_open_position(h):
     return any(p["market"]["epic"] == EPIC and _mysize(p["position"]["size"]) for p in pos)
 
 
+def has_working_order(h):
+    """True si ya hay una orden LIMITE pendiente de este bot (evita duplicarla)."""
+    r = cc.get(h, "/api/v1/workingorders")
+    if r.status_code != 200:
+        return False
+    for w in r.json().get("workingOrders", []):
+        d = w.get("workingOrderData", {})
+        if d.get("epic") == EPIC and _mysize(d.get("orderSize")):
+            return True
+    return False
+
+
 def acted_this_bar(h, bar0):
     frm = (bar0 - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S")
     r = cc.get(h, f"/api/v1/history/activity?from={frm}")
@@ -261,6 +273,8 @@ def main():
         return
     if has_open_position(h):
         print("  Ya hay posicion abierta en GOLD -> no abro otra."); return
+    if has_working_order(h):
+        print("  Ya hay orden limite pendiente -> no coloco otra."); return
     bar0 = current_bar_start()
     if acted_this_bar(h, bar0):
         print(f"  Ya se opero en esta vela 15m (cierre {bar0}Z) -> candado."); return
@@ -272,7 +286,33 @@ def main():
     # misma constante (backtest_real.py --bollinger --source capital) -> no puede desincronizarse.
     trail_pts = round(TRAIL_ATR * sig["atr"], 1)
     snap = cc.get(h, f"/api/v1/markets/{EPIC}").json().get("snapshot", {})
-    entry = snap.get("offer") if sig["side"] == "BUY" else snap.get("bid")
+    es_buy = sig["side"] == "BUY"
+    entry = snap.get("offer") if es_buy else snap.get("bid")
+    if entry is None:
+        print("  Sin precio de mercado -> no entro."); return
+    # ENTRADA POR LIMITE AL CIERRE DE LA SENAL (21-sep-2026). Se midio en vivo que entrar a
+    # MERCADO ~1 min despues del cierre cuesta +1.0 a +2.4 pts de desliz que el backtest no
+    # modelaba. Colocando la orden LIMITE en el cierre exacto (limite_vs_mercado.py, datos
+    # reales 300d): +2061 vs +1523 pts, PF 1.74 vs 1.49, perdiendo solo 1 de 161 operaciones.
+    # OJO: NO es pre-cargar en la BANDA (eso se descarto en agosto: -513 vs +545). La senal se
+    # sigue confirmando con el CIERRE; lo unico que cambia es COMO se ejecuta la entrada.
+    # Descontar del cierre (-0.25/-0.5 xATR) empeora -> la orden va al cierre exacto.
+    level = sig["close"]
+    # Si el mercado ya esta igual o MEJOR que el cierre, entrar a mercado (precio favorable).
+    if not ((es_buy and entry <= level) or ((not es_buy) and entry >= level)):
+        expiry = (bar0 + timedelta(minutes=BAR_MIN)).strftime("%Y-%m-%dT%H:%M:%S")
+        rl = cc.post(h, "/api/v1/workingorders",
+                     {"epic": EPIC, "direction": sig["side"], "size": SIZE, "level": level,
+                      "type": "LIMIT", "trailingStop": True, "stopDistance": trail_pts,
+                      "goodTillDate": expiry})
+        if rl.status_code in (200, 201):
+            ref = rl.json().get("dealReference")
+            conf = cc.get(h, f"/api/v1/confirms/{ref}").json()
+            print(f"  ORDEN LIMITE: {sig['side']} {SIZE} {EPIC} @ {level} (mercado {entry}) "
+                  f"TRAILING {trail_pts}pts ({TRAIL_ATR}xATR) vence {expiry} "
+                  f"ref={ref} status={conf.get('dealStatus')}")
+            return
+        print(f"  Orden limite fallo ({rl.status_code}): {rl.text[:120]} -> entro a MERCADO")
     body = {"epic": EPIC, "direction": sig["side"], "size": SIZE,
             "trailingStop": True, "stopDistance": trail_pts}
     r = cc.post(h, "/api/v1/positions", body)
