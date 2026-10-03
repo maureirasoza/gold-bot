@@ -65,6 +65,14 @@ TRAIL_ATR = 5.0           # SALIDA UNICA: trailing nativo = 5.0 x ATR, sin TP. E
                           # patron que el trend (5x): la reversion tambien necesita AIRE para el rebote.
                           # Alternativas (solo largo sin filtro, SL/TP fijo) son ROB3 pero PF 1.1-1.3.
 BAR_MIN   = 15            # velas de 15 minutos
+PYR_STEP  = 3.0           # PIRAMIDE (2-oct-2026): con la base ganando PYR_STEP x ATR(entrada), se agrega
+PYR_MAX   = 2             # UNA segunda unidad a mercado (decidido con el CIERRE 15m). Max 2 unidades.
+SIZE_PYR  = round(SIZE + 0.01, 2)   # la unidad piramidada es 0.01 mayor SOLO para distinguirla sin
+                          # guardar estado (si la base ya salio por su stop, no se vuelve a piramidar).
+                          # Validado con ejecucion FIEL 1m bid/ask (capital-demo/boll_piramide_cierre.py,
+                          # GOLD 1000d, 2024 fuera de muestra): sin piramide +1826 PF1.28 DD-292 ->
+                          # +3998 PF1.46 DD-558, peor trade igual (-150), 6/6 tramos, mejor que duplicar
+                          # tamano (+3652 DD-585 peor -301). 2024: +294/1.24 -> +605/1.37. Meseta 2-3xATR.
 # FILTRO DIRECCIONAL DE REGIMEN: la reversion muere en tendencia fuerte, entonces NO se
 # fadea contra ella. Si ADX>=ADX_MIN (tendencia con fuerza): no VENDER sobre la EMA_TREND
 # (no shortear un uptrend) ni COMPRAR bajo ella (no comprar un downtrend). Validado en
@@ -212,17 +220,32 @@ def evaluate(h):
     return signal_last(o, hi, lo, c)
 
 
-def _mysize(v):
-    """True si el tamano corresponde a ESTE bot (para no chocar con el bot FVG)."""
+def _is(v, size):
     try:
-        return abs(float(v) - SIZE) < 1e-9
+        return abs(float(v) - size) < 1e-9
     except (TypeError, ValueError):
         return False
 
 
+def _mysize(v):
+    """True si el tamano corresponde a ESTE bot: unidad base (SIZE) o piramidada (SIZE_PYR)."""
+    return _is(v, SIZE) or _is(v, SIZE_PYR)
+
+
+def get_positions(h):
+    """Posiciones de ESTE bot: [{dealId, direction, level, stop, dist, base}]. 'dist' = distancia
+    del trailing nativo (trailingStopDistance) = TRAIL_ATR x ATR de la entrada."""
+    out = []
+    for p in cc.get(h, "/api/v1/positions").json().get("positions", []):
+        pp = p["position"]
+        if p["market"]["epic"] == EPIC and _mysize(pp["size"]):
+            out.append({"dealId": pp["dealId"], "direction": pp.get("direction"), "level": pp.get("level"),
+                        "stop": pp.get("stopLevel"), "dist": pp.get("trailingStopDistance"), "base": _is(pp["size"], SIZE)})
+    return out
+
+
 def has_open_position(h):
-    pos = cc.get(h, "/api/v1/positions").json().get("positions", [])
-    return any(p["market"]["epic"] == EPIC and _mysize(p["position"]["size"]) for p in pos)
+    return bool(get_positions(h))
 
 
 def has_working_order(h):
@@ -245,7 +268,7 @@ def acted_this_bar(h, bar0):
     for a in r.json().get("activities", []):
         if a.get("epic") != EPIC or a.get("type") not in ("POSITION", "WORKING_ORDER"):
             continue
-        if not _mysize(a.get("details", {}).get("size")):   # solo mis ordenes (tamano 0.5)
+        if not _mysize((a.get("details") or {}).get("size")):   # solo mis ordenes (SIZE o SIZE_PYR)
             continue
         try:
             d = datetime.strptime(a["dateUTC"], "%Y-%m-%dT%H:%M:%S.%f")
@@ -264,18 +287,61 @@ def main():
     print(f"[ORO 15m GOLD] close={sig['close']} banda[{sig['lower']}..{sig['upper']}] "
           f"RSI={sig['rsi']} ATR={sig['atr']} ADX={sig['adx']} EMA{EMA_TREND}={sig['ema_trend']}")
     if sig["side"]:
-        print(f"  >> SENAL {sig['side']}  (salida: TRAILING 1.5xATR sin TP)")
+        print(f"  >> SENAL {sig['side']}  (salida: TRAILING {TRAIL_ATR}xATR sin TP; piramide a +{PYR_STEP}xATR)")
     elif sig.get("filtrado"):
         print(f"  >> senal DESCARTADA por filtro direccional (ADX>={ADX_MIN} contra tendencia mayor)")
     else:
         print("  >> sin senal en la ultima vela cerrada")
+    bar0 = current_bar_start()
+    poss = get_positions(h)
+    if poss:
+        is_long = (poss[0]["direction"] == "BUY")
+        for p in poss:
+            print(f"  Posicion ABIERTA ({'largo' if is_long else 'corto'}, {'base' if p['base'] else 'PIRAMIDE'}) "
+                  f"dealId={p['dealId']} entrada={p['level']} stop={p['stop']} trailing={p['dist']}pts")
+        base = [p for p in poss if p["base"]]
+        # PIRAMIDE: solo con la base sola. Nivel = entrada +/- PYR_STEP x ATR(entrada), con
+        # ATR(entrada) = trailing / TRAIL_ATR. Se decide con el CIERRE 15m y se agrega a MERCADO
+        # (asi se valido: boll_piramide_cierre.py). La unidad nueva lleva el mismo trailing.
+        if PYR_MAX >= 2 and len(poss) == 1 and base and base[0]["dist"] and sig["atr"]:
+            b = base[0]
+            atr_e = float(b["dist"]) / TRAIL_ATR
+            lvl = round(b["level"] + (1 if is_long else -1) * PYR_STEP * atr_e, 1)
+            hit = (sig["close"] >= lvl) if is_long else (sig["close"] <= lvl)
+            print(f"  Piramide: nivel {lvl} (entrada {b['level']} {'+' if is_long else '-'} {PYR_STEP}x{atr_e:.1f}) "
+                  f"cierre {sig['close']} -> {'ALCANZADO' if hit else 'aun no'}")
+            if hit and not (status or dry):
+                if acted_this_bar(h, bar0):
+                    print(f"  Ya se opero en esta vela 15m ({bar0}Z) -> candado."); return
+                if has_working_order(h):
+                    print("  Ya hay orden limite pendiente -> no agrego."); return
+                dist = round(float(b["dist"]), 1)
+                r = cc.post(h, "/api/v1/positions", {"epic": EPIC, "direction": b["direction"], "size": SIZE_PYR,
+                                                     "trailingStop": True, "stopDistance": dist})
+                if r.status_code not in (200, 201):
+                    print(f"  Piramide: trailing POST fallo ({r.status_code}): {r.text[:120]} -> reintento con stop fijo")
+                    snap = cc.get(h, f"/api/v1/markets/{EPIC}").json().get("snapshot", {})
+                    px = snap.get("offer") if is_long else snap.get("bid")
+                    if px is None:
+                        print("  Sin precio -> no agrego."); return
+                    sl = round(px - dist, 1) if is_long else round(px + dist, 1)
+                    r = cc.post(h, "/api/v1/positions", {"epic": EPIC, "direction": b["direction"], "size": SIZE_PYR, "stopLevel": sl})
+                    if r.status_code not in (200, 201):
+                        print(f"  Piramide NO colocada ({r.status_code}): {r.text}"); return
+                ref = r.json().get("dealReference")
+                conf = cc.get(h, f"/api/v1/confirms/{ref}").json()
+                print(f"  PIRAMIDE COLOCADA: {b['direction']} {SIZE_PYR} {EPIC} a mercado, trailing {dist}pts "
+                      f"ref={ref} status={conf.get('dealStatus')} nivel={conf.get('level')}")
+            elif hit:
+                print("  [status/dry-run] No agrego la unidad.")
+        elif len(poss) == 1 and not base:
+            print("  Queda solo la unidad piramidada (la base ya salio) -> no vuelvo a piramidar.")
+        print("  Stop TRAILING NATIVO (capital.com lo mueve en tiempo real). No abro otra.")
+        return
     if status or not sig["side"]:
         return
-    if has_open_position(h):
-        print("  Ya hay posicion abierta en GOLD -> no abro otra."); return
     if has_working_order(h):
         print("  Ya hay orden limite pendiente -> no coloco otra."); return
-    bar0 = current_bar_start()
     if acted_this_bar(h, bar0):
         print(f"  Ya se opero en esta vela 15m (cierre {bar0}Z) -> candado."); return
     if dry:
