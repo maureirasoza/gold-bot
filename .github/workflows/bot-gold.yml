@@ -23,4 +23,31 @@ jobs:
           CAPITAL_API_PASSWORD: ${{ secrets.CAPITAL_API_PASSWORD }}
           CAPITAL_ENV: demo
           CAPITAL_ALLOW_LIVE: '0'
-        run: python bot_gold.py
+        run: |
+          set -o pipefail
+          python -u bot_gold.py 2>&1 | tee bot.log
+      # MODO SOMBRA IA (9-oct-2026): si el bot coloco una orden, Claude opina sobre esa entrada con el contexto
+      # del momento (noticias). SOLO REGISTRA: la orden ya esta puesta y este paso no puede tocarla.
+      - name: Modo sombra IA (solo registra, no opera)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          CAPITAL_API_KEY:      ${{ secrets.CAPITAL_API_KEY }}
+          CAPITAL_IDENTIFIER:   ${{ secrets.CAPITAL_IDENTIFIER }}
+          CAPITAL_API_PASSWORD: ${{ secrets.CAPITAL_API_PASSWORD }}
+          CAPITAL_ENV: demo
+          CAPITAL_ALLOW_LIVE: '0'
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          grep -qE "ORDEN (COLOCADA|LIMITE)|COLOCADA (BUY|SELL)" bot.log 2>/dev/null || { echo "sin orden en esta corrida -> sombra IA no corre"; exit 0; }
+          pip install -q anthropic
+          python sombra_ia.py bollinger_oro bot.log
+      - name: Guardar veredicto IA
+        if: always() && hashFiles('sombra_ia.jsonl') != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sombra-ia-${{ github.run_id }}
+          path: sombra_ia.jsonl
+          retention-days: 90
