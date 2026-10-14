@@ -279,6 +279,11 @@ def acted_this_bar(h, bar0):
     return False
 
 
+# 14-oct-2026: ENTRADAS NUEVAS EN PAUSA (sin ventaja estadistica fuera de muestra; ver capital-demo/retest.py).
+# Las posiciones abiertas se siguen gestionando. Reactivar = True.
+NUEVAS_ENTRADAS = False
+
+
 def main():
     dry = "--dry-run" in sys.argv
     status = "--status" in sys.argv
@@ -310,7 +315,9 @@ def main():
             hit = (sig["close"] >= lvl) if is_long else (sig["close"] <= lvl)
             print(f"  Piramide: nivel {lvl} (entrada {b['level']} {'+' if is_long else '-'} {PYR_STEP}x{atr_e:.1f}) "
                   f"cierre {sig['close']} -> {'ALCANZADO' if hit else 'aun no'}")
-            if hit and not (status or dry):
+            if hit and not NUEVAS_ENTRADAS:
+                print("  Piramide en pausa (14-oct-2026).")
+            elif hit and not (status or dry):
                 if acted_this_bar(h, bar0):
                     print(f"  Ya se opero en esta vela 15m ({bar0}Z) -> candado."); return
                 if has_working_order(h):
@@ -340,6 +347,8 @@ def main():
         return
     if status or not sig["side"]:
         return
+    if not NUEVAS_ENTRADAS:
+        print("  [ORO Bollinger] ENTRADAS NUEVAS EN PAUSA (14-oct-2026): no abro posicion."); return
     if has_working_order(h):
         print("  Ya hay orden limite pendiente -> no coloco otra."); return
     if acted_this_bar(h, bar0):
