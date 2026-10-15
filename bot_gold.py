@@ -55,7 +55,9 @@ TP_MULT   = 1.5           # Take Profit = 1.5 x ATR (26-ago: bajado de 1.55). Co
                           # realista (cierre al bid, ~$0.30-0.60 gold), 1.5 es mas ROBUSTO:
                           # empata al 1.55 con spread apretado y le gana claro con spread
                           # ancho (sesiones finas). Captura casi-TP que el bid deja cortos.
-TRAIL_ATR = 5.0           # SALIDA UNICA: trailing nativo = 5.0 x ATR, sin TP. Elegido 19-sep por el
+TRAIL_ATR = 4.0           # 15-oct-2026: 5.0 -> 4.0. Motor fiel 5m (capital-demo/retest_oro_wf.py): 2024-01->2025-06 +$795
+                          # (suerte 2%), 2025-07->hoy +$1727 (3%), ultimo mes +$228. Antes t5: +$232 (31%) / +$2765.
+                          # Meseta RSI38/62 con trailing 3-4x positiva en ambos periodos (BB26/1.75 y BB20/2.0).
                           # BACKTEST REAL (capital-demo/bollinger_mejora.py + backtest_real.py
                           # --bollinger --source capital: GOLD 15m de capital.com, 300d, 19395 velas,
                           # mismo signal_last): con ESTA entrada, 2.0x -244 ROB1 | 3x +771 ROB2 |
@@ -279,9 +281,8 @@ def acted_this_bar(h, bar0):
     return False
 
 
-# 14-oct-2026: ENTRADAS NUEVAS EN PAUSA (sin ventaja estadistica fuera de muestra; ver capital-demo/retest.py).
-# Las posiciones abiertas se siguen gestionando. Reactivar = True.
-NUEVAS_ENTRADAS = False
+# 15-oct-2026: REACTIVADO con trailing 4.0 (ver TRAIL_ATR). Pausado 14-oct.
+NUEVAS_ENTRADAS = True
 
 
 def main():
