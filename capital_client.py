@@ -47,9 +47,15 @@ if not all([API_KEY, IDENTIFIER, API_PASSWORD]):
 
 
 def login():
-    """Abre sesión y devuelve headers de auth. Reintenta ante blips transitorios (red, 429, 5xx)."""
+    """Abre sesion y devuelve headers de auth.
+    17-nov-2026: reintentos mas largos (~70 s) ante red caida, timeouts, 429/5xx y 401 pasajeros (capital.com devolvio
+    'invalid.api.key' unos minutos el 29-oct y luego funciono solo). Si capital.com sigue SIN RESPONDER, la corrida
+    termina SIN error (exit 0) con aviso: la proxima corrida reintenta y los stops viven en capital.com -> no llegan
+    correos por caidas de pocos minutos. Si la clave sigue RECHAZADA tras todos los reintentos -> error real (exit 1)."""
     import time
-    for intento in range(4):
+    esperas = (3, 6, 10, 15, 20, 15)
+    ultimo = None
+    for intento in range(len(esperas) + 1):
         try:
             r = requests.post(
                 f"{BASE}/api/v1/session",
@@ -58,20 +64,26 @@ def login():
                 timeout=30,
             )
         except requests.exceptions.RequestException as e:
-            if intento < 3:
-                time.sleep(3 * (intento + 1)); continue
-            sys.exit(f"Login falló (red): {e}")
-        if r.status_code == 200:
-            return {
-                "X-CAP-API-KEY": API_KEY,
-                "CST": r.headers["CST"],
-                "X-SECURITY-TOKEN": r.headers["X-SECURITY-TOKEN"],
-                "Content-Type": "application/json",
-            }
-        if (r.status_code == 429 or r.status_code >= 500) and intento < 3:
-            time.sleep(4 * (intento + 1))    # backoff ante too-many-requests o error transitorio del server
-            continue
-        sys.exit(f"Login falló ({r.status_code}): {r.text}")
+            ultimo = ("red", str(e))
+        else:
+            if r.status_code == 200:
+                return {
+                    "X-CAP-API-KEY": API_KEY,
+                    "CST": r.headers["CST"],
+                    "X-SECURITY-TOKEN": r.headers["X-SECURITY-TOKEN"],
+                    "Content-Type": "application/json",
+                }
+            if r.status_code in (401, 429) or r.status_code >= 500:
+                ultimo = (r.status_code, r.text[:200])
+            else:
+                sys.exit(f"Login fallo ({r.status_code}): {r.text}")
+        if intento < len(esperas):
+            time.sleep(esperas[intento])
+    if ultimo and ultimo[0] == 401:
+        sys.exit(f"Login fallo (401) tras ~70 s de reintentos: {ultimo[1]}")
+    print(f"AVISO: capital.com no responde ({ultimo[0]}: {ultimo[1][:120]}). Corrida SALTEADA; "
+          f"se reintenta en la proxima. Las posiciones abiertas siguen protegidas por su stop en capital.com.")
+    sys.exit(0)
 
 
 def debug_headers():
