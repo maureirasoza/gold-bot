@@ -122,7 +122,12 @@ def preguntar(prompt):
     return resp, texto, uso
 
 
+SOMBRA_PAUSADA = True   # 18-nov-2026: pausada a pedido (53 ops cerradas: ENTRAR +$0.45/op vs NO_ENTRAR -$0.03/op, sin valor).
+
+
 def main():
+    if SOMBRA_PAUSADA:
+        print("sombra IA: PAUSADA (18-nov-2026)."); return
     if len(sys.argv) < 3:
         sys.exit("uso: python sombra_ia.py BOT bot.log")
     bot, logf = sys.argv[1], sys.argv[2]
